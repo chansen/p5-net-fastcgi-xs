@@ -1,0 +1,9 @@
+TYPEMAP
+U8                      T_UV
+U16                     T_UV
+U32                     T_UV
+
+INPUT
+T_UV
+    $var = ($type)SvUV($arg);
+
