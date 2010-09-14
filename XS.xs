@@ -122,8 +122,13 @@ nfc_build_params(pTHX_ SV *dsv, HV *params) {
     hv_iterinit(params);
     while ((he = hv_iternext(params))) {
 
-        if (HeKLEN(he) == HEf_SVKEY)
-            key = SvPVbyte(HeKEY_sv(he), klen);
+        if (HeKLEN(he) == HEf_SVKEY) {
+            sv = HeKEY_sv(he);
+            SvGETMAGIC(sv);
+            if (DO_UTF8(sv))
+                sv_utf8_downgrade(sv, 0);
+            key = SvPV_nomg_const(sv, klen);
+        }
         else
             key = HePV(he, klen);
 
@@ -132,8 +137,12 @@ nfc_build_params(pTHX_ SV *dsv, HV *params) {
         else
             sv = HeVAL(he);
 
-        if (SvOK(sv))
-            val = SvPVbyte(sv, vlen);
+        SvGETMAGIC(sv);
+        if (SvOK(sv)) {
+            if (DO_UTF8(sv))
+                sv_utf8_downgrade(sv, 0);
+            val = SvPV_nomg_const(sv, vlen);
+        }
         else
             val = NULL, vlen = 0;
 
