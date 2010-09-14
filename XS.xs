@@ -237,6 +237,38 @@ nfc_parse_params(pTHX_ const char *p, STRLEN len, HV *params) {
     croak(ERRMSG_OCTETS, "FCGI_NameValuePair");
 }
 
+static bool
+nfc_check_params(const char *p, STRLEN len) {
+    const char *pe = p + len;
+    U32 klen, vlen;
+
+    while (p < pe) {
+        klen = (unsigned char)*p++;
+        if (klen > 0x7F) {
+            if (p + 3 > pe)
+                return FALSE;
+            klen  =  (klen & 0x7F) << 24;
+            klen |= ((unsigned char)*p++ << 16);
+            klen |= ((unsigned char)*p++ <<  8);
+            klen |= ((unsigned char)*p++ <<  0);
+        }
+        if (p + 1 > pe)
+            return FALSE;
+        vlen = (unsigned char)*p++;
+        if (vlen > 0x7F) {
+            if (p + 3 > pe)
+                return FALSE;
+            vlen  =  (vlen & 0x7F) << 24;
+            vlen |= ((unsigned char)*p++ << 16);
+            vlen |= ((unsigned char)*p++ <<  8);
+            vlen |= ((unsigned char)*p++ <<  0);
+        }
+        if ((p += klen + vlen) > pe)
+            return FALSE;
+    }
+    return TRUE;
+}
+
 static SV *
 nfc_parse_record_body(pTHX_ U8 type, U16 request_id, const char *c, STRLEN clen) {
     HV *hv = newHV();
@@ -395,6 +427,7 @@ nfc_put_stream(char *dst, U8 type, U16 id, const char *src, STRLEN len, bool ter
 #define put_stream                      nfc_put_stream
 #define build_params(a, b)              nfc_build_params(aTHX_ a, b)
 #define parse_params(a, b, c)           nfc_parse_params(aTHX_ a, b, c)
+#define check_params(a, b)              nfc_check_params(a, b)
 #define parse_record_body(a, b, c, d)   nfc_parse_record_body(aTHX_ a, b, c, d)
 
 #define undef &PL_sv_undef
@@ -487,6 +520,23 @@ parse_params(octets)
     if (len)
         parse_params(buf, len, hv);
     PUSHs(rv);
+
+void
+check_params(octets)
+    SV *octets
+  PREINIT:
+    const char *buf = NULL;
+    STRLEN len = 0;
+  PPCODE:
+    SvGETMAGIC(octets);
+    if (SvOK(octets)) {
+        if (DO_UTF8(octets))
+            sv_utf8_downgrade(octets, 0);
+        buf = SvPV_nomg_const(octets, len);
+        PUSHs(boolSV(check_params(buf, len)));
+    }
+    else
+        PUSHs(&PL_sv_no);
 
 void
 build_record(type, request_id, content=undef)

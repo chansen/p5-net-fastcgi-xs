@@ -36,9 +36,7 @@ BEGIN {
                          get_protocol_status_name ];
 
     my @TODO       = qw[ build_begin_request
-                         build_end_request
-                         check_params ];
-
+                         build_end_request ];
 
     require Net::FastCGI::Protocol::PP;
             Net::FastCGI::Protocol::PP->import(@TODO);
