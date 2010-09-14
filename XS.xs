@@ -36,7 +36,8 @@
         (s)->m ## B0 = (unsigned char) (((v)      ) & 0xFF);    \
     } STMT_END
 
-#define FCGI_SEGMENT_LEN (32768 - FCGI_HEADER_LEN)
+#define FCGI_SEGMENT_LEN                                        \
+    (32768 - FCGI_HEADER_LEN)
 
 #define FCGI_PADDING_LEN(content_length)                        \
     ((8 - (content_length % 8)) % 8)
@@ -324,28 +325,28 @@ nfc_parse_record_body(pTHX_ U8 type, U16 request_id, const char *c, STRLEN clen)
     return rv;
 }
 
-static size_t
-nfc_put_header(char *d, U8 type, U16 id, U16 clen, U8 plen) {
-    nfc_init_header((FCGI_Header *)d, type, id, clen, plen);
+static STRLEN
+nfc_put_header(char *dst, U8 type, U16 id, U16 clen, U8 plen) {
+    nfc_init_header((FCGI_Header *)dst, type, id, clen, plen);
     return sizeof(FCGI_Header);
 }
 
-static size_t
-nfc_put_record(char *d, U8 type, U16 id, const char *c, U16 clen) {
-    char *s = d;
+static STRLEN
+nfc_put_record(char *dst, U8 type, U16 id, const char *src, U16 clen) {
     U8 plen = FCGI_PADDING_LEN(clen);
+    char *s = dst;
 
-    d += nfc_put_header(d, type, id, clen, plen);
+    dst += nfc_put_header(dst, type, id, clen, plen);
 
     if (clen) {
-        memcpy(d, c, clen);
-        d += clen;
+        memcpy(dst, src, clen);
+        dst += clen;
         if (plen) {
-            memset(d, 0, plen);
-            d += plen;
+            memset(dst, 0, plen);
+            dst += plen;
         }
     }
-    return d - s;
+    return dst - s;
 }
 
 static void
@@ -526,11 +527,13 @@ parse_record(octets)
     if (header->version != FCGI_VERSION_1)
         croak(ERRMSG_VERSION, header->version);
 
+    buf += sizeof(FCGI_Header);
+    len -= sizeof(FCGI_Header);
+
     content_len = FCGI_GET_UINT16(header, contentLength);
-    if (len < sizeof(FCGI_Header) + content_len)
+    if (len < content_len)
         croak(ERRMSG_OCTETS, "FCGI_Record");
 
-    buf += sizeof(FCGI_Header);
     if (GIMME == G_ARRAY) {
         dXSTARG;
         EXTEND(SP, 2);
@@ -568,7 +571,7 @@ build_stream(type, request_id, content=undef, terminate=FALSE)
     bool terminate
   PREINIT:
     dXSTARG;
-    const char *cp = NULL;
+    const char *buf = NULL;
     STRLEN stream_len, content_len = 0;
     UV nrecords;
   PPCODE:
@@ -576,7 +579,7 @@ build_stream(type, request_id, content=undef, terminate=FALSE)
     if (SvOK(content)) {
         if (DO_UTF8(content))
             sv_utf8_downgrade(content, 0);
-        cp = SvPV_nomg_const(content, content_len);
+        buf = SvPV_nomg_const(content, content_len);
         if (content_len > 0xFFFF)
             croak(ERRMSG_OCTETS_LE, "content", 0xFFFF);
     }
@@ -588,7 +591,8 @@ build_stream(type, request_id, content=undef, terminate=FALSE)
     stream_len += content_len;
     SvUPGRADE(TARG, SVt_PV);
     SvGROW(TARG, stream_len + 1);
-    put_stream(SvPVX(TARG), type, request_id, cp, content_len, terminate);
+    if (stream_len)
+        put_stream(SvPVX(TARG), type, request_id, buf, content_len, terminate);
     SvCUR_set(TARG, stream_len);
     (void)SvPOK_only(TARG);
     *SvEND(TARG) = '\0';
@@ -844,7 +848,7 @@ get_type_name(type)
         "FCGI_UNKNOWN_TYPE"
     };
   PPCODE:
-    if (type >= FCGI_BEGIN_REQUEST && type <= FCGI_UNKNOWN_TYPE)
+    if (type <= FCGI_UNKNOWN_TYPE)
         PUSHp(name[type], strlen(name[type]));
     else
         mPUSHs(newSVpvf("0x%.2X", type));
@@ -855,13 +859,13 @@ get_role_name(role)
   PREINIT:
     dXSTARG;
     static const char name [4][16] = {
-        "0x00",
+        "0x0000",
         "FCGI_RESPONDER",
         "FCGI_AUTHORIZER",
         "FCGI_FILTER"
     };
   PPCODE:
-    if (role >= FCGI_RESPONDER && role <= FCGI_FILTER)
+    if (role <= FCGI_FILTER)
         PUSHp(name[role], strlen(name[role]));
     else
         mPUSHs(newSVpvf("0x%.4X", role));
